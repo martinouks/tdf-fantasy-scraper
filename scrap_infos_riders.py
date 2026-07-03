@@ -234,6 +234,7 @@ if __name__ == "__main__":
         print("Usage: python scrap_infos_riders.py <output_excel_file>")
         sys.exit(1)
     else:
+        Path(DIR_SHEETS_FILES).mkdir(parents=True, exist_ok=True) # create the dir spreadsheets if it doesn't exist
         FILE_NAME = DIR_SHEETS_FILES + "/" + sys.argv[1]
 
     live_riders = _fetch_and_parse_api()
