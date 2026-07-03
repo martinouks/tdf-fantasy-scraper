@@ -1,0 +1,6 @@
+spreadsheets/
+
+.env
+
+.venv/
+venv/
