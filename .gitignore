@@ -1,8 +1,12 @@
+# Excel files
 spreadsheets/
 
+# .env file
 .env
 
+# virtual env
 .venv/
 venv/
 
-reglement_fr.pdf
+# pdf files
+src/
