@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import List, Dict, Any
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
-from dotenv import load_dotenv
 from openpyxl.formatting.rule import FormulaRule
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -14,40 +14,46 @@ DIR_SHEETS_FILES = "spreadsheets"
 
 API_URL = "https://fantasybytissot.letour.fr/v1/private/searchjoueurs?lg=fr"
 
+# adapt the token in .env file
+# adpat X-Access-Key with the one in the network request headers
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0',
     'Accept': 'application/json',
     'Content-Type': 'application/json',
-    'X-Access-Key': '630@19.30@',
+    'X-Access-Key': '630@20.31@',
     'Authorization': os.getenv("AUTH_TOKEN"),
     'Origin': 'https://fantasybytissot.letour.fr',
     'Referer': 'https://fantasybytissot.letour.fr/',
 }
 
+# adapt idj with the current stage
 PAYLOAD = {
     "filters": {
         "nom": "", "club": "", "position": "", "budget_ok": False,
         "valeur_max": 27, "engage": False, "partant": False, 
-        "dreamteam": False, "quota": "", "idj": "1", 
+        "dreamteam": False, "quota": "", "idj": "12", 
         "pageIndex": 0, "pageSize": 1000, 
         "loadSelect": 1, "searchonly": 1
     }
 }
 
-CATEGORY_COLORS = {
-    "leader": "1fa000",     # Green
-    "rouleur": "ffba00",    # Yellow
-    "grimpeur": "ff7800",   # Orange
-    "baroudeur": "0094e1",  # Blue
-    "Unknown": "FFFFFF",    # White (Fallback)
-    "Blue_sky": "deebf7"    # Light Blue for conditional formatting
+COLORS = {
+    "leader": "1fa000",
+    "rouleur": "ffba00",
+    "grimpeur": "ff7800",
+    "baroudeur": "0094e1",
+    "Unknown": "FFFFFF",
+    "Blue_sky": "deebf7",
+    "Yellow": "FFFF00"
 }
 
-EXCEL_HEADERS = ["NOM", "Equipe", "Coût", "Nb Offres", "Infos sup", "Etoiles misées", "Appartient à"]
+EXCEL_HEADERS = ["NOM", "Equipe", "Coût", "Nb Offres", "Infos sup", "Etoiles misées", "Appartient à", "", "Étoiles restantes", "=200-SUM(F2:F500)", "Coureurs", "=COUNT(F2:F500)"]
 WIDTHS_COLS = {'A': 35, 'B': 30, 'C': 10, 'D': 10, 'E': 40, 'F': 15, 'G': 20, 'H': 10, 'I': 35, 'J': 10, 'K': 20, 'L': 10}
 
-def _fetch_and_parse_api() -> List[Dict[str, Any]]:
-    """Fetches data from the API and standardizes the rider format."""
+LETTER_TO_INDEX = {chr(i + 64): i for i in range(1, 27)}
+
+def _fetch_data_api() -> List[Dict[str, Any]]:
+    """Fetches data from the API and store it a list of dictionaries."""
     print("Fetching live data from Fantasy API...")
 
     response = requests.post(API_URL, headers=HEADERS, json=PAYLOAD)
@@ -64,9 +70,8 @@ def _fetch_and_parse_api() -> List[Dict[str, Any]]:
             "team": item.get('club', 'Unknown').strip(),
             "cost": int(item.get('valeur', 0)),
             "category": item.get('position', 'Unknown').strip().replace('lib_', ''),
-            "is_free": not bool(item.get('occupe', True)),
             "current_offers": int(item.get('offres_encours_nb', 0)),
-            "proprietaire": item.get('proprietaire', None)
+            "proprietaire": item.get('proprietaire', {id: ''})
         })
 
     print(f"Downloaded {len(riders)} active riders.")
@@ -87,19 +92,19 @@ def _get_saved_manual_data(filepath: str) -> tuple:
         max_col = ws.max_column
         max_row = ws.max_row
         
-        # Notes attached to riders (Cols E, F, H)
-        for row in ws.iter_rows(min_row=2, values_only=False):
+        # Notes attached to riders
+        for row in ws.iter_rows(min_row=2):
             rider_name = row[0].value
             if rider_name: 
                 rider_notes[rider_name] = {
-                    5: row[4].value, # Col E
-                    6: row[5].value, # Col F
-                    8: row[7].value  # Col H
+                    "E": row[LETTER_TO_INDEX["E"] - 1].value,
+                    "F": row[LETTER_TO_INDEX["F"] - 1].value,
+                    "H": row[LETTER_TO_INDEX["H"] - 1].value
                 }
-                
+
         # Canvas notes  (Cols J+)
-        for r_idx in range(1, max_row + 1):
-            for c_idx in range(10, max_col + 1): # J to the end
+        for r_idx in range(2, max_row + 1):
+            for c_idx in range(LETTER_TO_INDEX["J"], max_col + 1):
                 cell_val = ws.cell(row=r_idx, column=c_idx).value
                 if cell_val is not None:
                     canvas_notes[(r_idx, c_idx)] = cell_val
@@ -109,8 +114,8 @@ def _get_saved_manual_data(filepath: str) -> tuple:
 
     return rider_notes, canvas_notes
 
-def _format_cell(cell, fill_color: str = None, is_header: bool = False, is_yellow: bool = False):
-    """Helper function to apply consistent styling to a cell."""
+def _format_cell(cell, fill_color: str = None, is_header: bool = False):
+    """Apply styling to a cell."""
     if is_header:
         border = Border(bottom=Side(style='medium'))
     else:
@@ -124,8 +129,6 @@ def _format_cell(cell, fill_color: str = None, is_header: bool = False, is_yello
         cell.font = Font(bold=True)
     if fill_color:
         cell.fill = PatternFill(start_color=fill_color, end_color=fill_color, fill_type="solid")
-    if is_yellow:
-        cell.fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
 def _export_to_excel(riders: List[Dict[str, Any]], saved_data: tuple, filepath: str):
     """Generates the Excel file, merging fresh API data with saved manual inputs."""
@@ -137,26 +140,15 @@ def _export_to_excel(riders: List[Dict[str, Any]], saved_data: tuple, filepath: 
     ws = wb.active
     ws.title = "Fantasy TDF Riders"
 
-    # Write Headers
+    # Write and format headers
     ws.append(EXCEL_HEADERS)
-    for col_idx in range(1, len(EXCEL_HEADERS) + 2):
+    for col_idx in range(LETTER_TO_INDEX["A"], LETTER_TO_INDEX["L"] + 1):
         _format_cell(ws.cell(row=1, column=col_idx), is_header=True)
 
-    # Stats
-    CELLS_WITH_FORMULAS = ['I1', 'J1', 'K1', 'L1']
+    ws.cell(row=1, column=LETTER_TO_INDEX["I"]).fill = PatternFill(start_color=COLORS["Yellow"], end_color=COLORS["Yellow"], fill_type="solid")
+    ws.cell(row=1, column=LETTER_TO_INDEX["K"]).fill = PatternFill(start_color=COLORS["Yellow"], end_color=COLORS["Yellow"], fill_type="solid")
 
-    ws[CELLS_WITH_FORMULAS[0]] = "Étoiles restantes"
-    ws[CELLS_WITH_FORMULAS[1]] = "=200-SUM(F2:F500)"
-    ws[CELLS_WITH_FORMULAS[2]] = "Coureurs"
-    ws[CELLS_WITH_FORMULAS[3]] = "=COUNT(F2:F500)"
-
-    for col_idx in range(len(EXCEL_HEADERS) + 2, len(EXCEL_HEADERS) + len(CELLS_WITH_FORMULAS) + 2):
-        if col_idx == len(EXCEL_HEADERS) + 2 or col_idx == len(EXCEL_HEADERS) + 4:
-            _format_cell(ws.cell(row=1, column=col_idx), is_header=True, is_yellow=True)
-        else:
-            _format_cell(ws.cell(row=1, column=col_idx), is_header=True)
-
-    ws.cell(row=1, column=len(EXCEL_HEADERS) + 5).border = Border(right=Side(style='medium'), bottom=Side(style='medium'))
+    ws.cell(row=1, column=LETTER_TO_INDEX["L"]).border = Border(right=Side(style='medium'), bottom=Side(style='medium'))
 
     # Sort riders by Team (alphabetical) then Cost (descending)
     sorted_riders = sorted(riders, key=lambda x: (x['team'], -x['cost']))
@@ -170,31 +162,32 @@ def _export_to_excel(riders: List[Dict[str, Any]], saved_data: tuple, filepath: 
             row_idx += 1
         current_team = rider['team']
 
-        # Populate Row Data
-        ws.cell(row=row_idx, column=1, value=rider['name'])
-        ws.cell(row=row_idx, column=2, value=rider['team'])
-        ws.cell(row=row_idx, column=3, value=rider['cost'])
+        # Load rider data into the sheet
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["A"], value=rider['name'])
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["B"], value=rider['team'])
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["C"], value=rider['cost'])
 
         offers = rider['current_offers']
-        ws.cell(row=row_idx, column=4, value=offers if offers > 0 else "")
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["D"], value=offers if offers > 0 else "")
 
-        ws.cell(row=row_idx, column=7, value=rider['proprietaire']["nom"] if rider["proprietaire"]["id"] != "" else "")
+        proprietaire = rider['proprietaire']
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["G"], value=proprietaire["nom"] if proprietaire["id"] else "")
 
-        ws.cell(row=row_idx, column=9, value=f'=IF(F{row_idx}>0,A{row_idx},"")') # print the rider name if chosed
-        ws.cell(row=row_idx, column=9).alignment = Alignment(horizontal="center")
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["I"], value=f'=IF(F{row_idx}>0,A{row_idx},"")') # print the rider name if chosed
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["I"]).alignment = Alignment(horizontal="center")
 
         # Merge saved notes
-        notes = rider_notes.get(rider['name'], {5: "", 6: "", 8: ""})
-        ws.cell(row=row_idx, column=5, value=notes.get(5, ""))
-        ws.cell(row=row_idx, column=6, value=notes.get(6, ""))
-        ws.cell(row=row_idx, column=8, value=notes.get(8, ""))
+        notes = rider_notes.get(rider['name'], {"E": "", "F": "", "H": ""})
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["E"], value=notes.get("E", ""))
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["F"], value=notes.get("F", ""))
+        ws.cell(row=row_idx, column=LETTER_TO_INDEX["H"], value=notes.get("H", ""))
 
         # Apply Styling
-        hex_color = CATEGORY_COLORS.get(rider['category'], CATEGORY_COLORS["Unknown"])
-        for col_idx in range(1, len(EXCEL_HEADERS) + 1):
+        hex_color = COLORS.get(rider['category'], COLORS["Unknown"])
+        for col_idx in range(LETTER_TO_INDEX["A"], LETTER_TO_INDEX["G"] + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
             # Only color the first 3 columns as requested
-            apply_color = hex_color if col_idx in [1, 2, 3] else None
+            apply_color = hex_color if col_idx in [LETTER_TO_INDEX["A"], LETTER_TO_INDEX["B"], LETTER_TO_INDEX["C"]] else None
             _format_cell(cell, fill_color=apply_color)
 
         row_idx += 1
@@ -203,7 +196,7 @@ def _export_to_excel(riders: List[Dict[str, Any]], saved_data: tuple, filepath: 
         ws.cell(row=r, column=c, value=val)
 
     # Conditional Formatting for riders name added
-    blue_fill = PatternFill(start_color=CATEGORY_COLORS["Blue_sky"], end_color=CATEGORY_COLORS["Blue_sky"], fill_type="solid")
+    blue_fill = PatternFill(start_color=COLORS["Blue_sky"], end_color=COLORS["Blue_sky"], fill_type="solid")
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                          top=Side(style='thin'), bottom=Side(style='thin'))
 
@@ -237,7 +230,7 @@ if __name__ == "__main__":
         Path(DIR_SHEETS_FILES).mkdir(parents=True, exist_ok=True) # create the dir spreadsheets if it doesn't exist
         FILE_NAME = DIR_SHEETS_FILES + "/" + sys.argv[1]
 
-    live_riders = _fetch_and_parse_api()
+    live_riders = _fetch_data_api()
 
     if live_riders:
         # Extract notes from previous file (if it exists)
